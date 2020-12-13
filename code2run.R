@@ -4,21 +4,24 @@
 
 library(parallel)
 library(demogR)
+require(here)
+require(tidyverse)
 
 
 # Jerod's folder paths
 box_fldr <- "C:/Users/jmerkle_local/Box Sync/KnowledgeIBM_results"
-github_fldr <- "C:/Users/jmerkle_local/Documents/GitHub/KnowledgeIBM"
+github_fldr <- here()
 
 # Shannon's folder paths
-# box_fldr <- ".../KnowledgeIBM_results"
+box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 # github_fldr <- ".../GitHub/KnowledgeIBM"
 
 
 #source the functions
 source(paste0(github_fldr, "/info.transfer.IBM.R"))
 
-# prepare test data
+#### prepare test data ####
+
 # K selected example
 d <- data.frame(age=c(0,1,2,3),
                 birthRate=c(0,1.4,1.9,1.75),
@@ -41,22 +44,40 @@ d
 eigen.analysis(K)$lambda1
 rm(K, stbl_age)
 
+# Store the above parameters as well as others so we can track different model runs more easily
+paramDF<- data.frame(Scenario = "test K selected",
+                     vitalRates = nest(d),
+                     N0 = 50,
+                     carryCapcity = 500,
+                     years = 50,
+                     sexRatio = 0.5,
+                     boldDist = nest(data.frame(shape1 = 2, shape2 = 5)),
+                     poisLambda = 2,
+                     infoTransfer = 0.01,
+                     infoDeath = 0.2,
+                     naiveLearn = 0.01,
+                     vertTransmission = TRUE) %>% 
+  rename(vitalRates = data, 
+         boldDist = data.1)
+
+as.numeric(data.frame(paramDF$boldDist[1]))
+#### Model Run ####
 # Run the function (test)
 result <- info.transfer.IBM(
-  d = d,   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
-  N0=50, # starting number of individuals
-  K=500, # carrying capacity
-  t=50, # how many years should the simulation run for?
-  sex.ratio=0.5, #what is the sex ratio of of the population/births?
-  bold.distr.beta=c(2, 5), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
-  si=2, # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
-  infotransfer=0.01, # given an interaction, what is the probability that information is transferred (min=0, max=1)
-  h=0.2, #increase in probability of death for uninformed, as a proportion of death rate.
-  nl=0.01, # naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning)
-  vertTransmission=TRUE, # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
-  result.folder=paste0(box_fldr,"/practice"), #an empty folder where results will be saved.
-  set_seed=FALSE, # want to make results reproducible? Then set as TRUE
-  save_at_each_iter=TRUE #should all results be written to file at each time step?
+  d = data.frame(paramDF$vitalRates[1]),   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
+  N0 = paramDF$N0[1], # starting number of individuals
+  K = paramDF$carryCapcity[1], # carrying capacity
+  t = paramDF$years[1], # how many years should the simulation run for?
+  sex.ratio = paramDF$sexRatio[1], #what is the sex ratio of of the population/births?
+  bold.distr.beta = as.numeric(data.frame(paramDF$boldDist[1])), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
+  si = paramDF$poisLambda[1], # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
+  infotransfer = paramDF$infoTransfer[1], # given an interaction, what is the probability that information is transferred (min=0, max=1)
+  h = paramDF$infoDeath[1], #increase in probability of death for uninformed, as a proportion of death rate.
+  nl = paramDF$naiveLearn[1], # naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning)
+  vertTransmission = paramDF$vertTransmission[1], # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
+  result.folder = paste0(box_fldr,"/practice"), #an empty folder where results will be saved.
+  set_seed = FALSE, # want to make results reproducible? Then set as TRUE
+  save_at_each_iter = TRUE #should all results be written to file at each time step?
 )
 
 # Some quick plotting code
