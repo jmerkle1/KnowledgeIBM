@@ -2,38 +2,36 @@
 # developed by Zach Bell, Jerod Merkle, and Shannon Albeke
 # last update: December 2020
 
-info.transfer.IBM <- function(d = d,   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
-                              N0 = 50, # starting number of individuals
-                              K = 200, # carrying capacity
-                              yrs = 25, # how many years should the simulation run for?
-                              sex.ratio = 0.5, #what is the sex ratio of of the population/births?
-                              bold.distr.beta = c(2, 5), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
-                              h = 0.20, #increase in probability of death for uninformed, as a proportion of current death rate.
-                              nl = 0.01, # naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning)
-                              si = 5, # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
-                              infotransfer = 0.03, # given an interaction, what is the probability that information is transfered (min=0, max=1)
-                              vertTransmission = TRUE, # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
-                              result.folder = "./KnowledgeIBM_results", #an empty folder where results will be saved.
-                              set_seed = FALSE, # want to make results reproducible? Then set as TRUE
-                              save_at_each_iter = TRUE #should all results be written to file at each time step?
-                              
-){
-  
-  # Major questions:
-  # How do we tune the model so we can throw a number of different r/K selected species in? 
-  # Do we really need boldness, interactions, and probability of knowledge transfer given an interaction all in the model?
-  
-  # Things I did on 12 Dec 2020:
-  # 1. Removed naive learning being affected by age. Now is same rate for all ages.
-  # 2. I removed any method for keeping interactions over time. In other words, who you interacted with in past year does not influence who you interact with in subsequent year
-  # 3. removed the density component of interactions. Not necessary because as population increases, there is higher probability of interactuibs anyway.
-  
-  # Things to do:
-  # 1. Develop visual representation of the model
-  # 2. Tune the model so the crashing and shooting up to big numbers happens less often (how to reduce stochasticity?)
-  # 3. Optimize the code so it runs faster? We'll have to do so many simulations. 
-  # 4. Think about how to plot results, mainly what are the outputs were looking at to compare? e.g., mean time to 75% K? and % informed? We did already develop some code for this.
-  # 5. 
+# d = a data.frame containing the starting params of the population including birth and death rates. must have 4 columns: "age","birthRate","survivalRate","N0_proportion"
+# N0 = starting number of individuals, default is 50
+# K = carrying capacity, default is 200
+# yrs = how many years should the simulation run for? Default is 25
+# sex.ratio = what is the sex ratio of of the population/births? Default is 0.5
+# bold.distr.beta = starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2). Default is c(1, 1) which is a uniform distribution
+# h = increase in probability of death for uninformed, as a proportion of current death rate. Default is 0.2
+# nl = naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning). Default is 0.01
+# si = lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions. Default is 5
+# infotransfer = given an interaction, what is the probability that information is transferred (min=0, max=1), default is 0.03
+# vertTransmission = When giving birth, should your information status be given to your offspring? TRUE/FALSE 
+# set_seed = want to make results reproducible? Then set as TRUE. Default is FALSE
+
+# Major questions:
+# How do we tune the model so we can throw a number of different r/K selected species in? 
+# Do we really need boldness, interactions, and probability of knowledge transfer given an interaction all in the model?
+
+# Things I did on 12 Dec 2020:
+# 1. Removed naive learning being affected by age. Now is same rate for all ages.
+# 2. I removed any method for keeping interactions over time. In other words, who you interacted with in past year does not influence who you interact with in subsequent year
+# 3. removed the density component of interactions. Not necessary because as population increases, there is higher probability of interactuibs anyway.
+
+# Things to do:
+# 1. Develop visual representation of the model
+# 2. Tune the model so the crashing and shooting up to big numbers happens less often (how to reduce stochasticity?)
+# 3. Optimize the code so it runs faster? We'll have to do so many simulations. 
+# 4. Think about how to plot results, mainly what are the outputs were looking at to compare? e.g., mean time to 75% K? and % informed? We did already develop some code for this.
+# 5. 
+
+info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5, bold.distr.beta = c(1, 1), h = 0.2, nl = 0.01, si = 5, infotransfer = 0.03, vertTransmission = TRUE, set_seed = FALSE){
   
   #manage packages
   if(all(c("Matrix") %in% installed.packages()[,1])==FALSE)
@@ -44,14 +42,8 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
   t1 <- Sys.time()
   print(paste0("start time: ",t1,"."))
   
-  #check the results folder
-  if(dir.exists(result.folder)==FALSE){
-    dir.create(result.folder)
-  }
-  if(length(dir(result.folder))> 0)
-    print("Warning! Your result.folder has something in it. Those files will be overwritten!")
-  
-  maxAge <- max(d$age) #max age in order to get a proportion of age for age based rates of naive learning
+  # max age in order to get a proportion of age for age based rates of naive learning
+  maxAge <- max(d$age) 
   
   #--------------------------------#
   # create starting individuals ####
@@ -121,7 +113,7 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
     interactionMatrix <- Matrix(data = 0,   #build a new interaction matrix for this time step!
                                 nrow = length(seq(is.alive)),
                                 ncol = length(seq(is.alive)), sparse = TRUE)
-    naiveLearn<- ifelse(sapply(ind[is.alive], function(x) x$informed)==1, "Informed","Uninformed")
+    naiveLearn<- ifelse(sapply(ind[is.alive], function(x) x$informed) == 1, "Informed","Uninformed")
        # States == 
     
     # two if statements to see if we are done with the simulation.
@@ -150,38 +142,10 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
             }
           }
           
-          # #### Shannon attempt and doing this using tidy
-          # # Custom function for determining if information is transfer
-          # rBin<- function(x, y = infotransfer){
-          #   tmp<- rbinom(x, 1, y)
-          #   return(ifelse(any(tmp > 0), 1, 0))
-          # }
-          # 
-          # socialPool <- data.frame(is.alive=is.alive[-indexJ], 
-          #                          boldness=boldness[-indexJ]) %>% #pool of available individuals to socialize with. If both bold = 1, then it'll be drawn from pois distr with lambda si. as bold values decrease, so does the si value for lambda of the draw
-          #   mutate(intIDinformed = sapply(ind[is.alive], function(x) x$informed)) %>%  # get other inds. informed level
-          #   mutate(infoTransfer = case_when(curIndividual$informed == 0 & intIDinformed == 0 ~ 0,
-          #                                   TRUE ~ 1)) %>% # updated information passing to others
-          #   group_by(`is.alive`) %>% 
-          #   mutate(numInteractions = rpois(n(), (si * curIndividual$boldness * boldness))) %>% # determine interactions
-          #   mutate(numInteractions = rBin(numInteractions, infotransfer)) # update interaction based on probability of passing knowledge
-          #   
-          # # update status if previously uninformed and now there was at least one interaction resulting in knowledge transfer
-          # if(curIndividual$informed==0 & sum(socialPool$infotransfer)>0){ 
-          #   curIndividual$informed <- 1
-          # }
-          # 
-          # # now we need to update the interacting individuals (other than the current individual) and their info status (given info transfer)
-          # for(g in which(socialPool$infoTransfer==1)){ #loop through the other individuals that gained information at this step
-          #   ind[[socialPool$is.alive[g]]]$informed <- socialPool$infoTransfer[g] #update each IDs interaction individual in total individuals dataset
-          # }
-          # 
-          # #### End tidy experiment
-          
           #### Orignial Jerod method
           # calculate the number of interactions with each other living animal
-          socialPool <- data.frame(is.alive=is.alive[-indexJ],
-                                   boldness=boldness[-indexJ]) #pool of available individuals to socialize with
+          socialPool <- data.frame(is.alive = is.alive[-indexJ],
+                                   boldness = boldness[-indexJ]) #pool of available individuals to socialize with
           # if both bold = 1, then it'll be drawn from pois distr with lambda si. as bold values decrease, so does the si value for lambda of the draw
           socialPool$numInteractions <- rpois(nrow(socialPool), (si * curIndividual$boldness * socialPool$boldness))
 
@@ -189,8 +153,8 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
           socialPool$intIDinformed <- sapply(ind[socialPool$is.alive], function(x) x$informed)
 
           #update the interaction matricies
-          interactionMatrix[-indexJ,indexJ] <- socialPool$numInteractions #update interaction matrix
-          interactionMatrix[indexJ,-indexJ] <- socialPool$numInteractions #update interaction matrix
+          interactionMatrix[-indexJ, indexJ] <- socialPool$numInteractions #update interaction matrix
+          interactionMatrix[indexJ, -indexJ] <- socialPool$numInteractions #update interaction matrix
 
 
           #now calculate whether the information was transfered based on infotransfer and number of interactions
@@ -244,11 +208,6 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
           
           # Update individuals status of dead or increase age
           ifelse(death == 1, curIndividual$alive <- 0, curIndividual$age <- curIndividual$age + 1)
-          # if(death==1){
-          #   curIndividual$alive <- 0 # if death, reset alive = 0
-          # } else { #if didn't die, advance age + 1
-          #   curIndividual$age <- curIndividual$age + 1 # advance age of parent
-          # }
           
           #update current individual in the total ind list
           ind[[j]] <- curIndividual 
@@ -286,16 +245,6 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
                                            births = length(which(sapply(ind, function(x) x$birthYr) == i)), 
                                            deaths = numb.died, 
                                            med.age = med.age[(i + 1)]))
-        # write out dataframe. Note that it rewrites itself each time.
-        # write.csv(tosave, paste0(result.folder,"/population_stats.csv"), row.names = FALSE)
-        
-        # #save out all the main files?
-        # # !! change to RDS
-        # if(save_at_each_iter){
-        #   save(interactions, file = paste0(result.folder,"/interaction_matricies.RData"))
-        #   save(pop, file = paste0(result.folder,"/population_data.RData"))  #don't really need this if ind data is written out
-        #   save(ind, file = paste0(result.folder,"/individual_data.RData"))
-        # }
         
         #simulation progress
         Sys.sleep(0.1)
@@ -305,16 +254,7 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
     }   # end of if statement whether any animals are alive
   } # end of loop through t
   
-  # #write out final files
-  # write.csv(tosave, paste0(result.folder,"/population_stats.csv"), row.names = FALSE)
-  # save(interactions, file = paste0(result.folder,"/interaction_matricies.RData"))
-  # save(pop, file = paste0(result.folder,"/population_data.RData"))  #don't really need this if ind data is written out
-  # save(ind, file = paste0(result.folder,"/individual_data.RData"))
-  
   return(list(PopStats = tosave, Interactions = interactions, Individuals = ind))
-  
-  #time to run simulation
-  # return(paste0("Completed in ", round((as.numeric(Sys.time())-as.numeric(t1))/60,2), " mins! Check your result.folder for results."))
   
 }
 
