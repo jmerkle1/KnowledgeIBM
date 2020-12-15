@@ -5,7 +5,7 @@
 info.transfer.IBM <- function(d = d,   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
                               N0 = 50, # starting number of individuals
                               K = 200, # carrying capacity
-                              t = 25, # how many years should the simulation run for?
+                              yrs = 25, # how many years should the simulation run for?
                               sex.ratio = 0.5, #what is the sex ratio of of the population/births?
                               bold.distr.beta = c(2, 5), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
                               h = 0.20, #increase in probability of death for uninformed, as a proportion of current death rate.
@@ -83,7 +83,7 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
   
   
   #make empty vectors to record population statistics for each time step
-  time <- seq(t + 1)
+  time <- seq(yrs + 1)
   
   pop <- list() # population size
   pop[[1]] <- which(sapply(ind, function(x) x$alive) == 1)  # this is actually who is alive at each time step
@@ -97,8 +97,8 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
   med.age[1] <- median(ages)
   
   #this dataframe will be saved out at every t iteration no matter what.
-  tosave <- data.frame(time.stamp = Sys.time(), 
-                       t = 0,
+  tosave <- data.frame(time.stamp = as.character(Sys.time()), 
+                       yr = 0,
                        pop.size = length(pop[[1]]),
                        births = NA, 
                        deaths = NA,
@@ -110,8 +110,8 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
   
   
   #simulation starts here
-  print(paste0("Looping through the ", t, " years."))
-  for(i in seq(t)){ # loop for each time increment
+  print(paste0("Looping through the ", yrs, " years."))
+  for(i in seq(yrs)){ # loop for each time increment
     #prep that years data
     # print(i)
     # i=1
@@ -277,7 +277,7 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
         interactions[[(i + 1)]] <- interactionMatrix 
         
         tosave <- rbind(tosave, data.frame(time.stamp = as.character(Sys.time()), 
-                                           t = i, 
+                                           yr = i, 
                                            pop.size = length(pop[[(i + 1)]]),
                                            frac.informed = frac.informed[(i + 1)],
                                            num.socialLearn = length(naiveLearn[naiveLearn == "Learned_Socially"]),
@@ -298,8 +298,8 @@ info.transfer.IBM <- function(d = d,   # these are the starting params of the po
         # }
         
         #simulation progress
-        Sys.sleep(.1)
-        print(paste0(i, " of ", t, " finished ", "[", round(i / t * 100,0), "%]"))
+        Sys.sleep(0.1)
+        print(paste0(i, " of ", yrs, " finished ", "[", round(i / yrs * 100, 0), "%]"))
         
       }   # end of if statement if the population made it to 0.75 of K
     }   # end of if statement whether any animals are alive

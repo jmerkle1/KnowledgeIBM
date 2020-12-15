@@ -71,7 +71,7 @@ paramDF<- data.frame(Scenario = "test K selected",
 d = data.frame(paramDF$vitalRates[1])
 N0 = paramDF$N0[1] 
 K = paramDF$carryCapcity[1]
-t = paramDF$years[1] 
+yrs = paramDF$years[1] 
 sex.ratio = paramDF$sexRatio[1]
 bold.distr.beta = as.numeric(data.frame(paramDF$boldDist[1]))
 si = paramDF$poisLambda[1] 
@@ -80,7 +80,7 @@ h = paramDF$infoDeath[1]
 nl = paramDF$naiveLearn[1]
 vertTransmission = paramDF$vertTransmission[1]
 result.folder = paste0(box_fldr,"/practice") 
-set_seed = TRUE
+set_seed = FALSE
 save_at_each_iter = FALSE 
 
 
@@ -101,7 +101,7 @@ for(i in 1:nrow(paramDF)){
       d = data.frame(df$vitalRates[1]),   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
       N0 = df$N0[1], # starting number of individuals
       K = df$carryCapcity[1], # carrying capacity
-      t = df$years[1], # how many years should the simulation run for?
+      yrs = df$years[1], # how many years should the simulation run for?
       sex.ratio = df$sexRatio[1], #what is the sex ratio of of the population/births?
       bold.distr.beta = as.numeric(data.frame(df$boldDist[1])), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
       si = df$poisLambda[1], # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
@@ -110,8 +110,8 @@ for(i in 1:nrow(paramDF)){
       nl = df$naiveLearn[1], # naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning)
       vertTransmission = df$vertTransmission[1], # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
       result.folder = paste0(box_fldr,"/practice"), #an empty folder where results will be saved.
-      set_seed = TRUE, # want to make results reproducible? Then set as TRUE
-      save_at_each_iter = TRUE #should all results be written to file at each time step?
+      set_seed = FALSE, # want to make results reproducible? Then set as TRUE
+      save_at_each_iter = FALSE #should all results be written to file at each time step?
     )
     
     # write the data.frame out to the database
@@ -128,7 +128,7 @@ for(i in 1:nrow(paramDF)){
     for(k in 1:length(dfInt)){
       intDF<- rbind(intDF, data.frame(Scenario = df$Scenario,
                                       ModelRun = j,
-                                      t = (k - 1),
+                                      yr = (k - 1),
                                       Interactions = as.character(toJSON(dfInt[[i]]))))
     }
     
@@ -171,39 +171,15 @@ stopCluster(cl)
 # Close the database connection
 dbDisconnect(dbConn)
 
-tmp<- list(as.matrix(result$Interactions[[1]]))
-
-test<- data.frame(Year = 1, Test = I(test))
-
-# we give each matrix in the list a unique name
-mat_names <- as.character(0:(length(result$Interactions) - 1))
-
-# converting to dataframe with the list index preserved
-df <- lapply(1:length(result$Interactions), function(i)
-  cbind(as.data.frame(as.matrix(result$Interactions[[i]]))))
-
-intDF<- data.frame()
-for(i in 1:length(df)){
-  intDF<- rbind(intDF, data.frame(t = (i - 1), Interactions = as.character(toJSON(df[[i]]))))
-}
-
-test<- sapply(1:length(df), FUN = function(x)
-  data.frame(t = x, Interactions = as.character(toJSON(df[[x]]))))
-
-test<- data.frame(t = 0, Interactions = as.character(toJSON(df[[1]])))
 
 
-
-tmp<- fromJSON(test$Interactions)
-
-dbWriteTable(dbConn, name = "tblInteractions", value = test)
 
 # Run the function (test)
 result <- info.transfer.IBM(
   d = data.frame(paramDF$vitalRates[1]),   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
   N0 = paramDF$N0[1], # starting number of individuals
   K = paramDF$carryCapcity[1], # carrying capacity
-  t = paramDF$years[1], # how many years should the simulation run for?
+  yrs = paramDF$years[1], # how many years should the simulation run for?
   sex.ratio = paramDF$sexRatio[1], #what is the sex ratio of of the population/births?
   bold.distr.beta = as.numeric(data.frame(paramDF$boldDist[1])), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
   si = paramDF$poisLambda[1], # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
@@ -213,7 +189,7 @@ result <- info.transfer.IBM(
   vertTransmission = paramDF$vertTransmission[1], # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
   result.folder = paste0(box_fldr,"/practice"), #an empty folder where results will be saved.
   set_seed = FALSE, # want to make results reproducible? Then set as TRUE
-  save_at_each_iter = TRUE #should all results be written to file at each time step?
+  save_at_each_iter = FALSE #should all results be written to file at each time step?
 )
 
 # Some quick plotting code
