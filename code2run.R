@@ -6,7 +6,10 @@ library(parallel)
 library(demogR)
 require(here)
 require(tidyverse)
-
+require(RSQLite)
+require(foreach)
+require(doParallel)
+require(jsonlite)
 
 # Jerod's folder paths
 box_fldr <- "C:/Users/jmerkle_local/Box Sync/KnowledgeIBM_results"
@@ -16,6 +19,8 @@ github_fldr <- here()
 box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 # github_fldr <- ".../GitHub/KnowledgeIBM"
 
+# Create/Connect to SQLite DB for storage of model runs
+dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelRuns.sqlite"))
 
 #source the functions
 source(paste0(github_fldr, "/info.transfer.IBM.R"))
@@ -60,8 +65,139 @@ paramDF<- data.frame(Scenario = "test K selected",
   rename(vitalRates = data, 
          boldDist = data.1)
 
-as.numeric(data.frame(paramDF$boldDist[1]))
+
 #### Model Run ####
+
+d = data.frame(paramDF$vitalRates[1])
+N0 = paramDF$N0[1] 
+K = paramDF$carryCapcity[1]
+t = paramDF$years[1] 
+sex.ratio = paramDF$sexRatio[1]
+bold.distr.beta = as.numeric(data.frame(paramDF$boldDist[1]))
+si = paramDF$poisLambda[1] 
+infotransfer = paramDF$infoTransfer[1]
+h = paramDF$infoDeath[1] 
+nl = paramDF$naiveLearn[1]
+vertTransmission = paramDF$vertTransmission[1]
+result.folder = paste0(box_fldr,"/practice") 
+set_seed = TRUE
+save_at_each_iter = FALSE 
+
+
+# Set up the multithread
+cl<- makeCluster(16)
+registerDoParallel(cl)
+
+# Initialize the number of iterations of the same model
+boot<- 500
+
+# Loop through the data.frame of model parameters for each scenario
+for(i in 1:nrow(paramDF)){
+  df<- paramDF[i, ]
+  # Now parallelize the individual model runs
+  outDF<- foreach(j = 1:boot, .packages = c("tidyverse", "Matrix", "jsonlite")) %dopar% {
+    # Run the function (test)
+    result <- info.transfer.IBM(
+      d = data.frame(df$vitalRates[1]),   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
+      N0 = df$N0[1], # starting number of individuals
+      K = df$carryCapcity[1], # carrying capacity
+      t = df$years[1], # how many years should the simulation run for?
+      sex.ratio = df$sexRatio[1], #what is the sex ratio of of the population/births?
+      bold.distr.beta = as.numeric(data.frame(df$boldDist[1])), # starting probability distribution of being bold, beta distribution (vector of 2 values: shape1 and shape2)
+      si = df$poisLambda[1], # lambda of poison distribution, representing maximum number of interactions between two individuals if both have a boldness of 1. if both animals have boldness of 0, then there will be no interactions
+      infotransfer = df$infoTransfer[1], # given an interaction, what is the probability that information is transferred (min=0, max=1)
+      h = df$infoDeath[1], #increase in probability of death for uninformed, as a proportion of death rate.
+      nl = df$naiveLearn[1], # naive learning probability of the oldest animals (i.e., the ones that have the highest naive learning)
+      vertTransmission = df$vertTransmission[1], # When giving birth, should your information status be given to your offspring? TRUE/FALSE 
+      result.folder = paste0(box_fldr,"/practice"), #an empty folder where results will be saved.
+      set_seed = TRUE, # want to make results reproducible? Then set as TRUE
+      save_at_each_iter = TRUE #should all results be written to file at each time step?
+    )
+    
+    # write the data.frame out to the database
+    outStats<- result$PopStats %>% 
+      mutate(Scenario = df$Scenario,
+             ModelRun = j) %>% 
+      select(Scenario, ModelRun, `time.stamp`:`med.age`)
+    
+    # converting to dataframe for each matrix for Interactions
+    dfInt <- lapply(1:length(result$Interactions), function(i)
+      cbind(as.data.frame(as.matrix(result$Interactions[[i]]))))
+    
+    intDF<- data.frame()
+    for(k in 1:length(dfInt)){
+      intDF<- rbind(intDF, data.frame(Scenario = df$Scenario,
+                                      ModelRun = j,
+                                      t = (k - 1),
+                                      Interactions = as.character(toJSON(dfInt[[i]]))))
+    }
+    
+    
+    # converting to dataframe for each matrix for Individuals
+    dfInd <- lapply(1:length(result$Individuals), function(i)
+      cbind(as.data.frame(result$Individuals[[i]])))
+    
+    dfInd<- do.call(rbind, dfInd) %>% 
+      mutate(Scenario = df$Scenario,
+             ModelRun = j,
+             ID = 1:n()) %>% 
+      select(Scenario, ModelRun, ID, alive:birthYr)
+    
+    out<- list(Stats = outStats, Interactions = intDF, Individuals = dfInd)
+    
+    # dbWriteTable(dbConn, name = "tblModelOutput", value = outDF, append = TRUE)
+  }
+  
+  # Bind the data.frames together
+  wStat<- data.frame()
+  for(k in 1:length(outDF)){
+    wStat<- rbind(wStat, outDF[[k]]$Stats)
+  }
+  wInt<- data.frame()
+  for(k in 1:length(outDF)){
+    wInt<- rbind(wInt, outDF[[k]]$Interactions)
+  }
+  wInd<- data.frame()
+  for(k in 1:length(outDF)){
+    wInd<- rbind(wInd, outDF[[k]]$Individuals)
+  }
+  # Write the tables to the database
+  dbWriteTable(dbConn, name = "tblModelStats", value = wStat, append = TRUE)
+  dbWriteTable(dbConn, name = "tblInteractions", value = wInt, append = TRUE)
+  dbWriteTable(dbConn, name = "tblIndividuals", value = wInd, append = TRUE)
+}
+# Stop multithread
+stopCluster(cl)
+# Close the database connection
+dbDisconnect(dbConn)
+
+tmp<- list(as.matrix(result$Interactions[[1]]))
+
+test<- data.frame(Year = 1, Test = I(test))
+
+# we give each matrix in the list a unique name
+mat_names <- as.character(0:(length(result$Interactions) - 1))
+
+# converting to dataframe with the list index preserved
+df <- lapply(1:length(result$Interactions), function(i)
+  cbind(as.data.frame(as.matrix(result$Interactions[[i]]))))
+
+intDF<- data.frame()
+for(i in 1:length(df)){
+  intDF<- rbind(intDF, data.frame(t = (i - 1), Interactions = as.character(toJSON(df[[i]]))))
+}
+
+test<- sapply(1:length(df), FUN = function(x)
+  data.frame(t = x, Interactions = as.character(toJSON(df[[x]]))))
+
+test<- data.frame(t = 0, Interactions = as.character(toJSON(df[[1]])))
+
+
+
+tmp<- fromJSON(test$Interactions)
+
+dbWriteTable(dbConn, name = "tblInteractions", value = test)
+
 # Run the function (test)
 result <- info.transfer.IBM(
   d = data.frame(paramDF$vitalRates[1]),   # these are the starting params of the population including birth and death rates. must have 5 columns: "age","birthRate","survivalRate","N0_proportion","N0_prob_knowing"
