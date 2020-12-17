@@ -6,7 +6,7 @@ require(tidyverse)
 box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 
 # Create/Connect to SQLite DB for storage of model runs
-dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelRuns.sqlite"))
+dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuning_20201215.sqlite"))
 
 # What tables exist within the database
 dbListTables(dbConn)
@@ -45,6 +45,43 @@ sumDat<- dat %>%
          num.asocialLearn_CI = (num.asocialLearn_SD / sqrt(Count)) * 1.96,
          total.num.interactions_CI = (total.num.interactions_SD / sqrt(Count)) * 1.96,
          med.age_CI = (med.age_SD / sqrt(Count)) * 1.96)
+
+nScenario<- dat %>% 
+  distinct(Scenario, ModelRun) %>% 
+  group_by(Scenario) %>% 
+  summarise(Count = n())
+
+# Determine max year for each run
+maxYr<- dat %>% 
+  group_by(Scenario, ModelRun) %>% 
+  filter(yr == max(yr)) %>% 
+  mutate(PopSurvive = case_when(pop.size < 2 ~ "Extirpated",
+                                TRUE ~ "Survived")) %>% 
+  ungroup() %>% 
+  group_by(Scenario, PopSurvive) %>% 
+  summarise(Mean = mean(yr),
+            SD = sd(yr),
+            Count = n()) %>% 
+  mutate(CI95 = (SD / sqrt(Count)) * 1.96) %>% 
+  pivot_wider(id_cols = Scenario, names_from = PopSurvive, values_from = c(Mean, CI95, Count)) %>% 
+  mutate(Count_Survived = replace_na(Count_Survived, 0),
+         Count_Extirpated = replace_na(Count_Extirpated, 0)) %>% 
+  mutate(PropSurvive = Count_Survived / (Count_Survived + Count_Extirpated))
+
+# Loop through the rows and populate the model parameters
+getModelParams<- function(x){
+  return(fromJSON(x) %>% 
+           pivot_wider(names_from = Parameter, values_from = Level))
+}
+
+tmpParam<- data.frame()
+for(i in 1:nrow(maxYr)){
+  tmpParam<- rbind(tmpParam, data.frame(Scenario = maxYr$Scenario[i], getModelParams(maxYr$Scenario[i])))
+}
+
+# Bind the tables
+maxYr<- maxYr %>% 
+  left_join(tmpParam, by = "Scenario")
 
 
 #### Populations Size ####
