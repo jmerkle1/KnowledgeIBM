@@ -57,9 +57,10 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
   for(i in seq(ind)){
     ind[[i]]$alive <- 1 #0 if false, 1 if true
     ind[[i]]$sex <- rbinom(1, 1, sex.ratio) #coinflip for sex, 0 = male, 1 = female  
-    ind[[i]]$age <- sample(d$age, 1, prob=d$N0_proportion)  # sample age based on stable age distribution
-    ind[[i]]$informed <- rbinom(1,1, d$N0_prob_knowing[d$age == ind[[i]]$age])  # sample whether the animal knows the info 1 if have info, 0 if not
+    ind[[i]]$age <- sample(d$age, 1, prob = d$N0_proportion)  # sample age based on stable age distribution
     ind[[i]]$boldness <- rbeta(1, bold.distr.beta[1], bold.distr.beta[2]) #beta distribution, ranges from 0 to 1
+    informedtmp <- (infotransfer * si * ind[[i]]$boldness) + (nl * ind[[i]]$age)
+    ind[[i]]$informed <- rbinom(1, 1, ifelse(informedtmp > 1, 1, informedtmp))  # sample whether the animal knows the info 1 if have info, 0 if not
     ind[[i]]$mother <- 0
     ind[[i]]$birthYr <- 0
     #ind[[i]]$maternalSurvivalMod <- rbeta(1, .8, 1)
