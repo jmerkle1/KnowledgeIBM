@@ -63,6 +63,7 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
     ind[[i]]$informed <- rbinom(1, 1, ifelse(informedtmp > 1, 1, informedtmp))  # sample whether the animal knows the info 1 if have info, 0 if not
     ind[[i]]$mother <- 0
     ind[[i]]$birthYr <- 0
+    ind[[i]]$vertLearn <- 0
     #ind[[i]]$maternalSurvivalMod <- rbeta(1, .8, 1)
   }
   
@@ -93,14 +94,17 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
   tosave <- data.frame(time.stamp = as.character(Sys.time()), 
                        yr = 0,
                        pop.size = length(pop[[1]]),
-                       births = NA, 
-                       deaths = NA,
                        frac.informed = frac.informed[1], 
                        num.socialLearn = NA,
                        num.asocialLearn = NA,
                        total.num.interactions = NA,
+                       num.male = length(which(sapply(ind, function(x) x$sex) == 0)),
+                       num.female = length(which(sapply(ind, function(x) x$sex) == 1)),
+                       num.vert.learn.male = NA,
+                       num.vert.learn.female = NA,
+                       births = NA, 
+                       deaths = NA,
                        med.age = med.age[1])
-  
   
   #simulation starts here
   print(paste0("Looping through the ", yrs, " years."))
@@ -195,7 +199,8 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
                                            informed = ifelse(vertTransmission == TRUE, curIndividual$informed, 0),   # give informed status of mom if vertransmission = TRUE.
                                            boldness = rbeta(1, bold.distr.beta[1], bold.distr.beta[2]),
                                            mother = j, 
-                                           birthYr = i) # create offspring, inherits informed status of parent
+                                           birthYr = i,
+                                           vertLearn = ifelse(vertTransmission == TRUE, curIndividual$informed, 0)) # create offspring, inherits informed status of parent
               
             }   # end of loop over number of births that occured
           }  # end of in statement whether j is female and she gave birth
@@ -236,6 +241,10 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
         # update interactions list with the latest matrix
         interactions[[(i + 1)]] <- interactionMatrix 
         
+        # Get the sex based values for vertical learning
+        vert<- sapply(ind[is.alive], function(x) c(x$vertLearn, x$sex))
+        
+        # write to the output
         tosave <- rbind(tosave, data.frame(time.stamp = as.character(Sys.time()), 
                                            yr = i, 
                                            pop.size = length(pop[[(i + 1)]]),
@@ -243,6 +252,10 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
                                            num.socialLearn = length(naiveLearn[naiveLearn == "Learned_Socially"]),
                                            num.asocialLearn = length(naiveLearn[naiveLearn == "Learned_Asocially"]),
                                            total.num.interactions = sum(interactionMatrix) / 2,
+                                           num.male = length(which(sapply(ind[is.alive], function(x) x$sex) == 0)),
+                                           num.female = length(which(sapply(ind[is.alive], function(x) x$sex) == 1)),
+                                           num.vert.learn.male = length(which(vert[1,] == 1 & vert[2,] == 1)),
+                                           num.vert.learn.female = length(which(vert[1,] == 1 & vert[2,] == 0)),
                                            births = length(which(sapply(ind, function(x) x$birthYr) == i)), 
                                            deaths = numb.died, 
                                            med.age = med.age[(i + 1)]))
