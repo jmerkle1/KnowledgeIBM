@@ -1,0 +1,569 @@
+---
+title: "Knowledge IBM Tuning Statistics"
+output: html_notebook
+---
+<style>
+  .myTable td {
+    padding: 40px;
+  }
+</style>
+
+```{r echo=FALSE, include=FALSE}
+require(RSQLite)
+require(jsonlite)
+require(tidyverse)
+require(kableExtra)
+require(emmeans)
+require(plotly)
+# Connect to the database
+box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
+
+# Create/Connect to SQLite DB for storage of model runs
+dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuning_20201215.sqlite"))
+
+# Get the parameter ranges
+scen<- dbSendQuery(dbConn, "SELECT * FROM tblModelScenarios") %>% 
+  dbFetch()
+
+dK <- data.frame(age=c(0,1,2,3),
+                birthRate=c(0,1.4,1.9,1.75),
+                survivalRate=c(0.7,0.95,0.9,0))
+K <- demogR::odiag(dK$survivalRate[1:(nrow(dK)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
+K[1,] <- dK$birthRate # Fertility
+stbl_age <- demogR::eigen.analysis(K)$stable.age
+dK$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
+dK$N0_proportion <- stbl_age
+# dK$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
+
+# R selected example
+dR <- data.frame(age=c(0,1,2,3),
+                birthRate=c(0,14,16,12),
+                survivalRate=c(0.14,0.18,0.22,0))
+K <- demogR::odiag(dR$survivalRate[1:(nrow(dR)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
+K[1,] <- dR$birthRate # Fertility
+stbl_age <- demogR::eigen.analysis(K)$stable.age
+dR$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
+dR$N0_proportion <- stbl_age
+# dR$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
+
+
+# Parameters to adjust for sensitivity analysis
+#sexRatio <- c(0.4, 0.5, 0.6)
+
+d <- list(Kselected = dK,
+          Rselected = dR)
+
+boldDist <- data.frame(Parameter = "Boldness",
+                       Shape = c("rbeta: Shape1", "rbeta: Shape2"),
+                       skewLow = c(1, 5),
+                       skewMedLow = c(2, 5),
+                       uniform = c(1, 1),
+                       skewMedHigh = c(5, 2),
+                       skewHigh = c(5, 1))
+
+poisLambda <- data.frame(Parameter = "rpois: Lambda", 
+                         Low = 0,
+                         MedLow = 1,
+                         Med = 2,
+                         MedHigh = 3,
+                         High = 4)
+
+infotransfer <- data.frame(Parameter = "probability: InfoTransfer",
+                           Low = 0.005, 
+                           MedLow = 0.01,
+                           Med = 0.05, 
+                           MedHigh = 0.1, 
+                           High = 0.5)
+
+infoDeath <- data.frame(Parameter = "probability: InfoDeath",
+                        Low = 0.01,
+                        MedLow = 0.1,
+                        Med = 0.2,
+                        MedHigh = 0.4,
+                        High = 0.6)
+
+naiveLearn <- data.frame(Parameter = "rbinom: naiveLearn",
+                         Low = 0, 
+                         MedLow = 0.005,
+                         Med = 0.01,
+                         MedHigh = 0.1,
+                         High = 0.5)
+
+vertTransmission <- data.frame(Parameter = "Vertical Transmission",
+                               True = TRUE,
+                               False = FALSE)
+
+params<- rbind(poisLambda, infotransfer, infoDeath, naiveLearn)
+
+dat<- dbSendQuery(dbConn, "SELECT * FROM tblModelStats") %>% 
+  dbFetch()
+
+# Summarize the data by scenario
+sumDat<- dat %>% 
+  filter(yr != 0) %>% 
+  group_by(Scenario, yr) %>% 
+  summarise(pop.size_Mean = mean(pop.size, na.rm = TRUE),
+            pop.size_SD = sd(pop.size, na.rm = TRUE),
+            pop.size_Q03 = quantile(pop.size, probs = 0.03, na.rm = TRUE),
+            pop.size_Q97 = quantile(pop.size, probs = 0.97, na.rm = TRUE),
+            births_Mean = mean(births, na.rm = TRUE),
+            births_SD = sd(births, na.rm = TRUE),
+            births_Q03 = quantile(births, probs = 0.03, na.rm = TRUE),
+            births_Q97 = quantile(births, probs = 0.97, na.rm = TRUE),
+            deaths_Mean = mean(deaths, na.rm = TRUE),
+            deaths_SD = sd(deaths, na.rm = TRUE),
+            deaths_Q03 = quantile(deaths, probs = 0.03, na.rm = TRUE),
+            deaths_Q97 = quantile(deaths, probs = 0.97, na.rm = TRUE),
+            frac.informed_Mean = mean(frac.informed, na.rm = TRUE),
+            frac.informed_SD = sd(frac.informed, na.rm = TRUE),
+            frac.informed_Q03 = quantile(frac.informed, probs = 0.03, na.rm = TRUE),
+            frac.informed_Q97 = quantile(frac.informed, probs = 0.97, na.rm = TRUE),
+            num.socialLearn_Mean = mean(num.socialLearn, na.rm = TRUE),
+            num.socialLearn_SD = sd(num.socialLearn, na.rm = TRUE),
+            num.socialLearn_Q03 = quantile(num.socialLearn, probs = 0.03, na.rm = TRUE),
+            num.socialLearn_Q97 = quantile(num.socialLearn, probs = 0.97, na.rm = TRUE),
+            num.asocialLearn_Mean = mean(num.asocialLearn, na.rm = TRUE),
+            num.asocialLearn_SD = sd(num.asocialLearn, na.rm = TRUE),
+            num.asocialLearn_Q03 = quantile(num.asocialLearn, probs = 0.03, na.rm = TRUE),
+            num.asocialLearn_Q97 = quantile(num.asocialLearn, probs = 0.97, na.rm = TRUE),
+            total.num.interactions_Mean = mean(total.num.interactions, na.rm = TRUE),
+            total.num.interactions_SD = sd(total.num.interactions, na.rm = TRUE),
+            total.num.interactions_Q03 = quantile(total.num.interactions, probs = 0.03, na.rm = TRUE),
+            total.num.interactions_Q97 = quantile(total.num.interactions, probs = 0.97, na.rm = TRUE),
+            med.age_Mean = mean(med.age, na.rm = TRUE),
+            med.age_SD = sd(med.age, na.rm = TRUE),
+            med.age_Q03 = quantile(med.age, probs = 0.03, na.rm = TRUE),
+            med.age_Q97 = quantile(med.age, probs = 0.97, na.rm = TRUE),
+            Count = n()
+            ) %>% 
+  mutate(pop.size_CI = (pop.size_SD / sqrt(Count)) * 1.96,
+         births_CI = (births_SD / sqrt(Count)) * 1.96,
+         deaths_CI = (deaths_SD / sqrt(Count)) * 1.96,
+         frac.informed_CI = (frac.informed_SD / sqrt(Count)) * 1.96,
+         num.socialLearn_CI = (num.socialLearn_SD / sqrt(Count)) * 1.96,
+         num.asocialLearn_CI = (num.asocialLearn_SD / sqrt(Count)) * 1.96,
+         total.num.interactions_CI = (total.num.interactions_SD / sqrt(Count)) * 1.96,
+         med.age_CI = (med.age_SD / sqrt(Count)) * 1.96)
+
+nScenario<- dat %>% 
+  distinct(Scenario, ModelRun) %>% 
+  group_by(Scenario) %>% 
+  summarise(Count = n())
+
+#### Determine max year for each run ####
+maxYr<- dat %>% 
+  group_by(Scenario, ModelRun) %>% 
+  filter(yr == max(yr)) %>% 
+  mutate(PopSurvive = case_when(pop.size < 2 ~ "Extirpated",
+                                TRUE ~ "Survived")) %>% 
+  ungroup() %>% 
+  group_by(Scenario, PopSurvive) %>% 
+  summarise(Mean = mean(yr),
+            SD = sd(yr),
+            Q03 = quantile(yr, probs = 0.03),
+            Q97 = quantile(yr, probs = 0.97),
+            Count = n()) %>% 
+  mutate(CI95 = (SD / sqrt(Count)) * 1.96) %>% 
+  pivot_wider(id_cols = Scenario, names_from = PopSurvive, values_from = c(Mean, CI95, Q03, Q97, Count)) %>% 
+  mutate(Count_Survived = replace_na(Count_Survived, 0),
+         Count_Extirpated = replace_na(Count_Extirpated, 0)) %>% 
+  mutate(PropSurvive = Count_Survived / (Count_Survived + Count_Extirpated),
+         EndResult = case_when(Count_Survived > 0 & Count_Extirpated > 0 ~ "Mixed Result",
+                               Count_Extirpated == 0 ~ "All Survived",
+                               Count_Survived == 0 ~ "All Crashed"))
+
+# Loop through the rows and populate the model parameters
+getModelParams<- function(x){
+  return(fromJSON(x) %>% 
+           pivot_wider(names_from = Parameter, values_from = Level))
+}
+
+tmpParam<- data.frame()
+for(i in 1:nrow(maxYr)){
+  tmpParam<- rbind(tmpParam, data.frame(Scenario = maxYr$Scenario[i], getModelParams(maxYr$Scenario[i])))
+}
+
+# Bind the tables
+maxYr<- maxYr %>% 
+  left_join(tmpParam, by = "Scenario")
+
+maxYr<- maxYr %>% 
+  mutate(Boldness = ordered(Boldness, c("skewLow", "skewMedLow", "uniform", "skewMedHigh", "skewHigh")),
+         PoisLambda = ordered(PoisLambda, c("Low", "MedLow", "Med", "MedHigh", "High")),
+         InfoTransfer = ordered(InfoTransfer, c("Low", "MedLow", "Med", "MedHigh", "High")),
+         InfoDeath = ordered(InfoDeath, c("Low", "MedLow", "Med", "MedHigh", "High")),
+         NaiveLearn = ordered(NaiveLearn, c("Low", "MedLow", "Med", "MedHigh", "High")))
+```
+
+### Below are the keys to interpreting the different parameter 'levels' of each Scenario. We have a total of 12,500 unique Scenarios
+
+
+```{r echo=FALSE}
+kable(dK, caption = "Vital Rates, K Selected") %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+   row_spec(0, bold = TRUE)
+kable(dR, caption = "Vital Rates, R Selected") %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+   row_spec(0, bold = TRUE)
+
+kable(boldDist, caption = "Boldness rbeta Shape Parameters") %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+   row_spec(0, bold = TRUE)
+
+kable(params, caption = "Poisson Lambda, Information Transfer, and Naive Learning") %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+   row_spec(0, bold = TRUE)
+
+kable(vertTransmission, caption = "Vertical Transmission") %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+   row_spec(0, bold = TRUE)
+
+```
+<hr> 
+
+### Boxplots on the general effects of each parameter
+
+#### The x-axis labels follow this pattern: **'Vitals - End Result - Parameter Level - Mean Parameter Value (for survived and extirpated results)'**. This is across all scenarios, with each scenario having 50 iterations. So these data are grouped to a certain extent to provide you with general patterns.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.height=9}
+grid.arrange(
+maxYr %>% 
+  group_by(EndResult, Vital) %>% 
+  summarise(Count = n()) %>% 
+  ggplot(aes(x = EndResult, y = Count, fill = Vital)) +
+  geom_col() +
+  ggtitle("# of Scenarios by End Result \n (50 iterations / scenario)") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90)),
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  ggplot(aes(x = paste(Vital, EndResult, Param), y = MeanYears)) +
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by Vitals") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90)),
+ncol = 2)
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and Boldness level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, Boldness, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, Boldness, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", "Kselected All Survived skewMedLow Mean_Survived", "Kselected All Survived uniform Mean_Survived", "Kselected All Survived skewMedHigh Mean_Survived", "Kselected All Survived skewHigh Mean_Survived", "Kselected Mixed Result skewLow Mean_Survived", "Kselected Mixed Result skewLow Mean_Extirpated", "Kselected Mixed Result skewMedLow Mean_Survived", "Kselected Mixed Result skewMedLow Mean_Extirpated", "Kselected Mixed Result uniform Mean_Survived", "Kselected Mixed Result uniform Mean_Extirpated", "Kselected Mixed Result skewMedHigh Mean_Survived", "Kselected Mixed Result skewMedHigh Mean_Extirpated", "Kselected Mixed Result skewHigh Mean_Survived", "Kselected Mixed Result skewHigh Mean_Extirpated", "Rselected Mixed Result skewLow Mean_Survived", "Rselected Mixed Result skewLow Mean_Extirpated", "Rselected Mixed Result skewMedLow Mean_Survived", "Rselected Mixed Result skewMedLow Mean_Extirpated", "Rselected Mixed Result uniform Mean_Survived", "Rselected Mixed Result uniform Mean_Extirpated", "Rselected Mixed Result skewMedHigh Mean_Survived", "Rselected Mixed Result skewMedHigh Mean_Extirpated", "Rselected Mixed Result skewHigh Mean_Survived", "Rselected Mixed Result skewHigh Mean_Extirpated", "Rselected All Crashed skewLow Mean_Extirpated", "Rselected All Crashed skewMedLow Mean_Extirpated", "Rselected All Crashed uniform Mean_Extirpated", "Rselected All Crashed skewMedHigh Mean_Extirpated", "Rselected All Crashed skewHigh Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by Boldness") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and Poisson Lambda level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, PoisLambda, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, PoisLambda, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by Poisson Lambda") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and InfoTransfer level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoTransfer, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, InfoTransfer, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by InfoTransfer") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and InfoDeath level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoDeath, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, InfoDeath, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by InfoDeath") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and NaiveLearn level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, NaiveLearn, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, NaiveLearn, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by NaiveLearn") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and Vertical Transfer level
+maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, VertTrans, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, VertTrans, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived False Mean_Survived", "Kselected All Survived True Mean_Survived", "Kselected Mixed Result False Mean_Survived", "Kselected Mixed Result False Mean_Extirpated", "Kselected Mixed Result True Mean_Survived", "Kselected Mixed Result True Mean_Extirpated", "Rselected Mixed Result False Mean_Survived", "Rselected Mixed Result False Mean_Extirpated", "Rselected Mixed Result True Mean_Survived", "Rselected Mixed Result True Mean_Extirpated", "Rselected All Crashed False Mean_Extirpated", "Rselected All Crashed True Mean_Extirpated"))) %>% 
+  ggplot(aes(x = xcol, y = MeanYears)) + 
+  geom_boxplot() +
+  ggtitle("Mean Years to K or Crash by Vertical Transfer") +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90))
+
+```
+
+### Attempt to try and quantify the results of the above plots
+
+By taking the same data the the Box Plots are based off of, I fit individual linear models (ANOVA) to each dataset, in the for of *MeanYears ~ Scenario*. I then captured the Estimates for each Scenario into a table and each column is the model parameter estimate for the scenario given that parameter. This was the first method that popped into my head to try and compare effect sizes between different IBM parameters. I then performed a complete Pairwise Contrast between all scenarios within a parameter model. The scatter plots below are some graphical representations of the covariation between two IBM parameters in **Effect-size Space**. I hope this makes sense and is somewhat useful. All parameters seems to covary positively with the others, but there are some patterns when you look across the K vs R selected space and whether the model populations survived or were extirpated. The plots are dynamic, so you can turn on/off each point by double-clicking in the legend and hover allows you to see values. 
+
+```{r echo=FALSE, message=FALSE, fig.height=9, fig.width=9}
+ibmBold<- maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, Boldness, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, Boldness, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", "Kselected All Survived skewMedLow Mean_Survived", "Kselected All Survived uniform Mean_Survived", "Kselected All Survived skewMedHigh Mean_Survived", "Kselected All Survived skewHigh Mean_Survived", "Kselected Mixed Result skewLow Mean_Survived", "Kselected Mixed Result skewLow Mean_Extirpated", "Kselected Mixed Result skewMedLow Mean_Survived", "Kselected Mixed Result skewMedLow Mean_Extirpated", "Kselected Mixed Result uniform Mean_Survived", "Kselected Mixed Result uniform Mean_Extirpated", "Kselected Mixed Result skewMedHigh Mean_Survived", "Kselected Mixed Result skewMedHigh Mean_Extirpated", "Kselected Mixed Result skewHigh Mean_Survived", "Kselected Mixed Result skewHigh Mean_Extirpated", "Rselected Mixed Result skewLow Mean_Survived", "Rselected Mixed Result skewLow Mean_Extirpated", "Rselected Mixed Result skewMedLow Mean_Survived", "Rselected Mixed Result skewMedLow Mean_Extirpated", "Rselected Mixed Result uniform Mean_Survived", "Rselected Mixed Result uniform Mean_Extirpated", "Rselected Mixed Result skewMedHigh Mean_Survived", "Rselected Mixed Result skewMedHigh Mean_Extirpated", "Rselected Mixed Result skewHigh Mean_Survived", "Rselected Mixed Result skewHigh Mean_Extirpated", "Rselected All Crashed skewLow Mean_Extirpated", "Rselected All Crashed skewMedLow Mean_Extirpated", "Rselected All Crashed uniform Mean_Extirpated", "Rselected All Crashed skewMedHigh Mean_Extirpated", "Rselected All Crashed skewHigh Mean_Extirpated"))) 
+
+# Fit a model
+modBold<- aov(MeanYears ~ xcol, data = ibmBold)
+# Get pairwise contrasts of each scenario
+conBoldPair<- summary(pairs(as.emmGrid(as.list(ref_grid(modBold))))) %>% 
+  rename(estimate_Bold = estimate,
+         p.value_Bold = p.value) %>% 
+  mutate(contrast = str_replace_all(contrast, pattern = "skew", replacement = "")) %>% 
+  mutate(contrast = str_replace_all(contrast, pattern = "uniform", replacement = "Med"))
+# Get model estimates of each scenario
+conBold<- summary(contrast(as.emmGrid(as.list(ref_grid(modBold))))) %>% 
+   rename(estimate_Bold = estimate,
+         p.value_Bold = p.value) %>% 
+  mutate(contrast = str_replace_all(contrast, pattern = "skew", replacement = "")) %>% 
+  mutate(contrast = str_replace_all(contrast, pattern = "uniform", replacement = "Med"))
+
+ibmLambda<- maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, PoisLambda, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, PoisLambda, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+
+# Fit a model
+modLambda<- aov(MeanYears ~ xcol, data = ibmLambda)
+# Get pairwise contrasts of each scenario
+conLambdaPair<- summary(pairs(as.emmGrid(as.list(ref_grid(modLambda))))) %>% 
+  rename(estimate_Lambda = estimate,
+         p.value_Lambda = p.value)
+# Get model estimates of each scenario
+conLambda<- summary(contrast(as.emmGrid(as.list(ref_grid(modLambda))))) %>% 
+   rename(estimate_Lambda = estimate,
+         p.value_Lambda = p.value)
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and InfoTransfer level
+ibmInfoTran<- maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoTransfer, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, InfoTransfer, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+
+# Fit a model
+modInfoTran<- aov(MeanYears ~ xcol, data = ibmInfoTran)
+# Get pairwise contrasts of each scenario
+conInfoTranPair<- summary(pairs(as.emmGrid(as.list(ref_grid(modInfoTran))))) %>% 
+  rename(estimate_InfoTran = estimate,
+         p.value_InfoTran = p.value)
+# Get model estimates of each scenario
+conInfoTran<- summary(contrast(as.emmGrid(as.list(ref_grid(modInfoTran))))) %>% 
+   rename(estimate_InfoTran = estimate,
+         p.value_InfoTran = p.value)
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and InfoDeath level
+ibmInfoDeath<- maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoDeath, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, InfoDeath, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) 
+
+# Fit a model
+modInfoDeath<- aov(MeanYears ~ xcol, data = ibmInfoDeath)
+# Get pairwise contrasts of each scenario
+conInfoDeathPair<- summary(pairs(as.emmGrid(as.list(ref_grid(modInfoDeath))))) %>% 
+  rename(estimate_InfoDeath = estimate,
+         p.value_InfoDeath = p.value)
+# Get model estimates of each scenario
+conInfoDeath<- summary(contrast(as.emmGrid(as.list(ref_grid(modInfoDeath))))) %>% 
+   rename(estimate_InfoDeath = estimate,
+         p.value_InfoDeath = p.value)
+
+# Boxplot of Mean Years to Carrying capacity by Vital rate and NaiveLearn level
+ibmNaive<- maxYr %>% 
+  select(Scenario, Mean_Survived, Mean_Extirpated, Vital, NaiveLearn, EndResult) %>% 
+  pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
+  mutate(xcol = paste(Vital, EndResult, NaiveLearn, Param)) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+
+# Fit a model
+modNaive<- aov(MeanYears ~ xcol, data = ibmNaive)
+# Get pairwise contrasts of each scenario
+conNaivePair<- summary(pairs(as.emmGrid(as.list(ref_grid(modNaive))))) %>% 
+  rename(estimate_Naive = estimate,
+         p.value_Naive = p.value)
+# Get model estimates of each scenario
+conNaive<- summary(contrast(as.emmGrid(as.list(ref_grid(modNaive))))) %>% 
+   rename(estimate_Naive = estimate,
+         p.value_Naive = p.value)
+
+allEst<- conBold %>% 
+  select(contrast, estimate_Bold) %>% 
+  left_join(conLambda %>% select(contrast, estimate_Lambda), by = "contrast") %>% 
+  left_join(conInfoTran %>% select(contrast, estimate_InfoTran), by = "contrast") %>% 
+  left_join(conInfoDeath %>% select(contrast, estimate_InfoDeath), by = "contrast") %>% 
+  left_join(conNaive %>% select(contrast, estimate_Naive), by = "contrast") 
+
+allPair<- conBoldPair %>% 
+  select(contrast, estimate_Bold) %>% 
+  left_join(conLambdaPair %>% 
+              select(contrast, estimate_Lambda), by = "contrast") %>% 
+  left_join(conInfoTranPair %>% 
+              select(contrast, estimate_InfoTran), by = "contrast") %>% 
+  left_join(conInfoDeathPair %>% 
+              select(contrast, estimate_InfoDeath), by = "contrast") %>% 
+  left_join(conNaivePair %>% 
+              select(contrast, estimate_Naive), by = "contrast") %>% 
+  separate(col = contrast, into = c("Start", "End"), sep = " - ", remove = FALSE) %>% 
+  mutate(Start_Vital = case_when(str_detect(Start, "Kselected") ~ "K",
+                                 TRUE ~ "R"),
+         End_Vital = case_when(str_detect(End, "Kselected") ~ "K",
+                                 TRUE ~ "R"),
+         Start_Result = case_when(str_detect(Start, "Survived") ~ "S",
+                                 TRUE ~ "E"),
+         End_Result = case_when(str_detect(End, "Survived") ~ "S",
+                                 TRUE ~ "E")) %>% 
+  unite(col = VitalResult, Start_Vital, End_Vital, Start_Result, End_Result, sep = "", remove = FALSE) %>% 
+  mutate(VitalResult = as.factor(VitalResult))
+
+
+# Bold and Lambda
+modBL<- lm(estimate_Bold ~ estimate_Lambda, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_Lambda, estimate_Bold, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modBL)$adj.r.squared, 3)))
+)
+
+# Bold and InfoTran
+modBT<- lm(estimate_Bold ~ estimate_InfoTran, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_InfoTran, estimate_Bold, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modBT)$adj.r.squared, 3)))
+)
+
+# Bold and InfoDeath
+modBD<- lm(estimate_Bold ~ estimate_InfoDeath, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_InfoDeath, estimate_Bold, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modBD)$adj.r.squared, 3)))
+)
+
+
+# Bold and Naive
+modBN<- lm(estimate_Bold ~ estimate_Naive, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_Naive, estimate_Bold, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modBN)$adj.r.squared, 3)))
+)
+
+# Lambda and InfoTran
+modLT<- lm(estimate_Lambda ~ estimate_InfoTran, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_InfoTran, estimate_Lambda, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modLT)$adj.r.squared, 3)))
+)
+
+# Lambda and InfoDeath
+modLD<- lm(estimate_Lambda ~ estimate_InfoDeath, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_InfoDeath, estimate_Lambda, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modLD)$adj.r.squared, 3)))
+)
+
+# Lambda and Naive
+modLN<- lm(estimate_Lambda ~ estimate_Naive, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_Naive, estimate_Lambda, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modLN)$adj.r.squared, 3)))
+)
+
+# InfoTran and InfoDeath
+modTD<- lm(estimate_InfoTran ~ estimate_InfoDeath, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_InfoDeath, estimate_InfoTran, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modTD)$adj.r.squared, 3)))
+)
+
+# InfoTran and Naive
+modTN<- lm(estimate_InfoTran ~ estimate_Naive, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_Naive, estimate_InfoTran, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modTN)$adj.r.squared, 3)))
+)
+
+# InfoDeath and Naive
+modDN<- lm(estimate_InfoDeath ~ estimate_Naive, data = allPair)
+
+ggplotly(
+  allPair %>% 
+    ggplot(aes(estimate_Naive, estimate_InfoDeath, group = VitalResult, color = VitalResult)) +
+    geom_point() +
+    ggtitle("Pairwise Contrast of Linear Model Estimates By Scenario \n MeanYear ~ Scenario \n Each axis represents a model based on the specified parameter \n K = Kselected; R = Rselected; E = Extirpated; S = Survived") +
+    annotate(geom = "text", x = -10, y = 20, label = paste0("Adj. R2 = ", round(summary(modDN)$adj.r.squared, 3)))
+)
+
+
+```
+
+### Here are the actual tables of the Effect Sizes for the linear models
+
+This table represent the Effect size of each Scenario on MeanYears to reach K or Crash. I did not calculate any differences between effect sizes, but you could do so if you feel it would be informative.
+
+```{r echo=FALSE, message=FALSE}
+allEst
+
+```
+
+This table represent the Effect size Pairwise comparisons of each Scenario on MeanYears to reach K or Crash. This is the table used for the above Scatterplots. **FYI:** For this to work, I renamed the Bold categories to be Low - High, so I removed the prefix 'skew', and I also renamed 'uniform' to = 'Med'. Just to allow for easier data joining.
+
+```{r echo=FALSE, message=FALSE}
+allPair
+
+```
