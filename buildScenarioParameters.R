@@ -6,20 +6,20 @@ require(tidyverse)
 box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 
 # Create/Connect to SQLite DB for storage of model runs
-dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelRuns.sqlite"))
+dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuning_20201215.sqlite"))
 
 # Use this code to build additional model scenarios and append to database
 
 # K selected example
 dK <- data.frame(age=c(0,1,2,3),
                 birthRate=c(0,1.4,1.9,1.75),
-                survivalRate=c(0.5,0.95,0.85,0))
+                survivalRate=c(0.7,0.95,0.9,0))
 K <- odiag(dK$survivalRate[1:(nrow(dK)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
 K[1,] <- dK$birthRate # Fertility
 stbl_age <- eigen.analysis(K)$stable.age
 dK$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
 dK$N0_proportion <- stbl_age
-dK$N0_prob_knowing <- c(0,.05,.1,.15)
+# dK$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
 
 # R selected example
 dR <- data.frame(age=c(0,1,2,3),
@@ -30,7 +30,7 @@ K[1,] <- dR$birthRate # Fertility
 stbl_age <- eigen.analysis(K)$stable.age
 dR$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
 dR$N0_proportion <- stbl_age
-dR$N0_prob_knowing <- c(0,.05,.1,.15)
+# dR$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
 
 
 # Parameters to adjust for sensitivity analysis
@@ -58,7 +58,11 @@ infotransfer <- list(Low = 0.005,
                      High = 0.5)
 
 # infoDeath <- c(0.05, 0.2, 0.4)
-infoDeath <- list(Med = c(0.2))
+infoDeath <- list(Low = 0.01,
+                  MedLow = 0.1,
+                  Med = 0.2,
+                  MedHigh = 0.4,
+                  High = 0.6)
 
 naiveLearn <- list(Low = 0, 
                    MedLow = 0.005,
@@ -112,19 +116,17 @@ for(vital in 1:length(d)){
               # populate the row of data
               tmp<- data.frame(Scenario = as.character(toJSON(data.frame(Parameter = c("Vital", "Boldness", "PoisLambda", "InfoTransfer", "InfoDeath", "NaiveLearn", "VertTrans"),
                                                                          Level = c(names(d)[vital], names(boldDist)[bold], names(poisLambda)[lamb], names(infotransfer)[tran], names(infoDeath)[death], names(naiveLearn)[naive], names(vertTransmission)[vert])))),
-                               vitalRates = nest(d[[vital]]),
+                               vitalRates = as.character(toJSON(d[[vital]])),
                                N0 = 50,
                                carryCapcity = 500,
                                years = 50,
                                sexRatio = 0.5,
-                               boldDist = nest(data.frame(shape1 = boldDist[[bold]][1], shape2 = boldDist[[bold]][2])),
+                               boldDist = as.character(toJSON(data.frame(shape1 = boldDist[[bold]][1], shape2 = boldDist[[bold]][2]))),
                                poisLambda = poisLambda[[lamb]],
                                infoTransfer = infotransfer[[tran]],
                                infoDeath = infoDeath[[death]],
                                naiveLearn = naiveLearn[[naive]],
-                               vertTransmission = vertTransmission[[vert]]) %>% 
-                rename(vitalRates = data, 
-                       boldDist = data.1)
+                               vertTransmission = vertTransmission[[vert]]) 
               # add the new row
               outParam<- rbind(outParam, tmp)
             } # close vert
@@ -135,4 +137,6 @@ for(vital in 1:length(d)){
   } # close bold
 } # close vital
 
+# Save to the database
+dbWriteTable(dbConn, name = "tblModelScenarios", value = outParam)
 
