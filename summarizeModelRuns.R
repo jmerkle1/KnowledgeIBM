@@ -2,6 +2,8 @@ require(RSQLite)
 require(jsonlite)
 require(tidyverse)
 require(gridExtra)
+require(foreach)
+require(doParallel)
 require(here)
 
 # Population size, births, deaths, sex ratio % Informed
@@ -285,7 +287,11 @@ if(!dir.exists(paste0(box_fldr, "/PopulationSize"))){
   dir.create(paste0(box_fldr, "/PopulationSize"))
 }
 
-for(i in 1:length(scen)){
+# Set up the multithread
+cl<- makeCluster(24)
+registerDoParallel(cl)
+
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = pop.size_Mean)) +
@@ -306,7 +312,7 @@ if(!dir.exists(paste0(box_fldr, "/Births"))){
   dir.create(paste0(box_fldr, "/Births"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = births_Mean)) +
@@ -326,7 +332,7 @@ if(!dir.exists(paste0(box_fldr, "/Deaths"))){
   dir.create(paste0(box_fldr, "/Deaths"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = deaths_Mean)) +
@@ -346,7 +352,7 @@ if(!dir.exists(paste0(box_fldr, "/FractionInformed"))){
   dir.create(paste0(box_fldr, "/FractionInformed"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = frac.informed_Mean)) +
@@ -367,7 +373,7 @@ if(!dir.exists(paste0(box_fldr, "/SocialLearning"))){
   dir.create(paste0(box_fldr, "/SocialLearning"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = num.socialLearn_Mean)) +
@@ -387,7 +393,7 @@ if(!dir.exists(paste0(box_fldr, "/AsocialLearning"))){
   dir.create(paste0(box_fldr, "/AsocialLearning"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = num.asocialLearn_Mean)) +
@@ -407,7 +413,7 @@ if(!dir.exists(paste0(box_fldr, "/TotalInteractions"))){
   dir.create(paste0(box_fldr, "/TotalInteractions"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = total.num.interactions_Mean)) +
@@ -427,7 +433,7 @@ if(!dir.exists(paste0(box_fldr, "/MedianAge"))){
   dir.create(paste0(box_fldr, "/MedianAge"))
 }
 
-for(i in 1:length(scen)){
+foreach(i = 1:nrow(scen), .packages = c("tidyverse")) %dopar% {
   sumDat %>% 
     filter(Scenario == scen$Scenario[i]) %>% 
     ggplot(aes(x = yr, y = med.age_Mean)) +
@@ -442,3 +448,4 @@ for(i in 1:length(scen)){
   
 }
 
+stopCluster(cl)
