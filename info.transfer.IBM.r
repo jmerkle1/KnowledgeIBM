@@ -254,8 +254,8 @@ info.transfer.IBM <- function(d = d, N0 = 50, K = 200, yrs = 25, sex.ratio = 0.5
                                            total.num.interactions = sum(interactionMatrix) / 2,
                                            num.male = length(which(sapply(ind[is.alive], function(x) x$sex) == 0)),
                                            num.female = length(which(sapply(ind[is.alive], function(x) x$sex) == 1)),
-                                           num.vert.learn.male = length(which(vert[1,] == 1 & vert[2,] == 1)),
-                                           num.vert.learn.female = length(which(vert[1,] == 1 & vert[2,] == 0)),
+                                           num.vert.learn.male = ifelse(length(vert) > 0, length(which(vert[1,] == 1 & vert[2,] == 1)), 0),
+                                           num.vert.learn.female = ifelse(length(vert) > 0, length(which(vert[1,] == 1 & vert[2,] == 0)), 0),
                                            births = length(which(sapply(ind, function(x) x$birthYr) == i)), 
                                            deaths = numb.died, 
                                            med.age = med.age[(i + 1)]))
