@@ -11,14 +11,14 @@ require(foreach)
 require(doParallel)
 require(jsonlite)
 
-# Jerod's folder paths
-box_fldr <- "C:/Users/jmerkle_local/Box Sync/KnowledgeIBM_results"
-github_fldr <- here()
+# # Jerod's folder paths
+# box_fldr <- "C:/Users/jmerkle_local/Box Sync/KnowledgeIBM_results"
+# github_fldr <- here()
 
 # Shannon's folder paths
 box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 # github_fldr <- ".../GitHub/KnowledgeIBM"
-
+github_fldr <- ""
 # Create/Connect to SQLite DB for storage of model runs
 # dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelRuns.sqlite"))
 dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuning_20201215.sqlite"))
@@ -26,7 +26,8 @@ dbConnSup <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuningSupp
 
 
 #source the functions
-source(paste0(github_fldr, "/info.transfer.IBM.R"))
+#source(paste0(github_fldr, "/info.transfer.IBM.R"))
+source("info.transfer.IBM.R")
 
 #### prepare test data ####
 

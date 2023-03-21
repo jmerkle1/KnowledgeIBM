@@ -15,43 +15,59 @@ require(tidyverse)
 require(kableExtra)
 require(emmeans)
 require(plotly)
+require(gridExtra)
+library(demogR)
 # Connect to the database
 box_fldr <- "E:/Box Sync/KnowledgeIBM_results"
 
 # Create/Connect to SQLite DB for storage of model runs
-dbConn <- dbConnect(SQLite(), paste0(box_fldr, "/KnowledgeIBM_ModelTuning_20201215.sqlite"))
+dbConn <- dbConnect(SQLite(), paste0(box_fldr, "./KnowledgeIBM_ModelTuningK_20230207.sqlite"))
 
 # Get the parameter ranges
-scen<- dbSendQuery(dbConn, "SELECT * FROM tblModelScenarios") %>% 
+scen<- dbSendQuery(dbConn, "SELECT * FROM tblModelScenarios_EQ") %>% 
   dbFetch()
 
-dK <- data.frame(age=c(0,1,2,3),
-                birthRate=c(0,1.4,1.9,1.75),
-                survivalRate=c(0.7,0.95,0.9,0))
-K <- demogR::odiag(dK$survivalRate[1:(nrow(dK)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
+# K selected example
+dK <- data.frame(age=c(0,1,2,3,4,5,6,7,8,9),
+                 birthRate=c(0,0.35,1.3,1.3,1.45,1.3,1.55,1.5,1.45,0.9),
+                 survivalRate=c(0.79,0.99,0.95,0.97,0.80,0.71,0.44,0.35,0.28,0))
+
+
+K <- odiag(dK$survivalRate[1:(nrow(dK)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
 K[1,] <- dK$birthRate # Fertility
-stbl_age <- demogR::eigen.analysis(K)$stable.age
+stbl_age <- eigen.analysis(K)$stable.age
 dK$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
 dK$N0_proportion <- stbl_age
+#dK$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+
+# dK <- data.frame(age=c(0,1,2,3),
+#                 birthRate=c(0,1.4,1.9,1.75),
+#                 survivalRate=c(0.7,0.95,0.9,0))
+# K <- demogR::odiag(dK$survivalRate[1:(nrow(dK)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
+# K[1,] <- dK$birthRate # Fertility
+# stbl_age <- demogR::eigen.analysis(K)$stable.age
+# dK$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
+# dK$N0_proportion <- stbl_age
 # dK$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
 
-# R selected example
-dR <- data.frame(age=c(0,1,2,3),
-                birthRate=c(0,14,16,12),
-                survivalRate=c(0.14,0.18,0.22,0))
-K <- demogR::odiag(dR$survivalRate[1:(nrow(dR)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
-K[1,] <- dR$birthRate # Fertility
-stbl_age <- demogR::eigen.analysis(K)$stable.age
-dR$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
-dR$N0_proportion <- stbl_age
+# # R selected example
+# dR <- data.frame(age=c(0,1,2,3),
+#                 birthRate=c(0,9.3,11.8,5.6),
+#                 survivalRate=c(0.3,0.679,0.594,0))
+# K <- demogR::odiag(dR$survivalRate[1:(nrow(dR)-1)],-1) # Px, survival rates (note, the survival rate in final age class is 0 automatically)
+# K[1,] <- dR$birthRate # Fertility
+# stbl_age <- demogR::eigen.analysis(K)$stable.age
+# dR$N0_proportion <- c(0,stbl_age[2:length(stbl_age)])
+# dR$N0_proportion <- stbl_age
 # dR$N0_prob_knowing <- c(0.05, 0.05, 0.05, 0.05)
 
 
 # Parameters to adjust for sensitivity analysis
 #sexRatio <- c(0.4, 0.5, 0.6)
 
-d <- list(Kselected = dK,
-          Rselected = dR)
+# d <- list(Kselected = dK,
+#           Rselected = dR)
+d <- list(Kselected = dK)
 
 boldDist <- data.frame(Parameter = "Boldness",
                        Shape = c("rbeta: Shape1", "rbeta: Shape2"),
@@ -95,7 +111,7 @@ vertTransmission <- data.frame(Parameter = "Vertical Transmission",
 
 params<- rbind(poisLambda, infotransfer, infoDeath, naiveLearn)
 
-dat<- dbSendQuery(dbConn, "SELECT * FROM tblModelStats") %>% 
+dat<- dbSendQuery(dbConn, "SELECT * FROM tblModelStats_EQ") %>% 
   dbFetch()
 
 # Summarize the data by scenario
@@ -153,24 +169,33 @@ nScenario<- dat %>%
 #### Determine max year for each run ####
 maxYr<- dat %>% 
   group_by(Scenario, ModelRun) %>% 
-  filter(yr == max(yr)) %>% 
+  filter(yr == max(yr, na.rm = TRUE)) %>% 
   mutate(PopSurvive = case_when(pop.size < 2 ~ "Extirpated",
                                 TRUE ~ "Survived")) %>% 
   ungroup() %>% 
   group_by(Scenario, PopSurvive) %>% 
-  summarise(Mean = mean(yr),
-            SD = sd(yr),
-            Q03 = quantile(yr, probs = 0.03),
-            Q97 = quantile(yr, probs = 0.97),
+  summarise(Mean = mean(yr, na.rm = TRUE),
+            SD = sd(yr, na.rm = TRUE),
+            Q03 = quantile(yr, probs = 0.03, na.rm = TRUE),
+            Q97 = quantile(yr, probs = 0.97, na.rm = TRUE),
             Count = n()) %>% 
   mutate(CI95 = (SD / sqrt(Count)) * 1.96) %>% 
-  pivot_wider(id_cols = Scenario, names_from = PopSurvive, values_from = c(Mean, CI95, Q03, Q97, Count)) %>% 
+  pivot_wider(id_cols = Scenario, names_from = PopSurvive, values_from = c(Mean, CI95, Q03, Q97, Count))
+
+if(!"Count_Extirpated" %in% names(maxYr)){
+  maxYr<- maxYr %>% 
+    mutate(Count_Extirpated = 0,
+           Mean_Extirpated = 0)
+} 
+
+maxYr<- maxYr %>% 
   mutate(Count_Survived = replace_na(Count_Survived, 0),
          Count_Extirpated = replace_na(Count_Extirpated, 0)) %>% 
   mutate(PropSurvive = Count_Survived / (Count_Survived + Count_Extirpated),
          EndResult = case_when(Count_Survived > 0 & Count_Extirpated > 0 ~ "Mixed Result",
                                Count_Extirpated == 0 ~ "All Survived",
-                               Count_Survived == 0 ~ "All Crashed"))
+                               Count_Survived == 0 ~ "All Crashed"))  %>% 
+  mutate_at(vars(matches(c("Mean_Extirpated", "Mean_Survived", "CI95_Extirpated", "CI95_Survived", "Q03_Extirpated", "Q03_Survived", "Q97_Extirpated", "Q97_Survived", "Count_Extirpated", "Count_Survived", "PropSurvive"))), ~ replace_na(., 0))
 
 # Loop through the rows and populate the model parameters
 getModelParams<- function(x){
@@ -202,9 +227,9 @@ maxYr<- maxYr %>%
 kable(dK, caption = "Vital Rates, K Selected") %>% 
   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
    row_spec(0, bold = TRUE)
-kable(dR, caption = "Vital Rates, R Selected") %>% 
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
-   row_spec(0, bold = TRUE)
+# kable(dR, caption = "Vital Rates, R Selected") %>% 
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+#    row_spec(0, bold = TRUE)
 
 kable(boldDist, caption = "Boldness rbeta Shape Parameters") %>% 
   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
@@ -248,7 +273,42 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, Boldness, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, Boldness, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", "Kselected All Survived skewMedLow Mean_Survived", "Kselected All Survived uniform Mean_Survived", "Kselected All Survived skewMedHigh Mean_Survived", "Kselected All Survived skewHigh Mean_Survived", "Kselected Mixed Result skewLow Mean_Survived", "Kselected Mixed Result skewLow Mean_Extirpated", "Kselected Mixed Result skewMedLow Mean_Survived", "Kselected Mixed Result skewMedLow Mean_Extirpated", "Kselected Mixed Result uniform Mean_Survived", "Kselected Mixed Result uniform Mean_Extirpated", "Kselected Mixed Result skewMedHigh Mean_Survived", "Kselected Mixed Result skewMedHigh Mean_Extirpated", "Kselected Mixed Result skewHigh Mean_Survived", "Kselected Mixed Result skewHigh Mean_Extirpated", "Rselected Mixed Result skewLow Mean_Survived", "Rselected Mixed Result skewLow Mean_Extirpated", "Rselected Mixed Result skewMedLow Mean_Survived", "Rselected Mixed Result skewMedLow Mean_Extirpated", "Rselected Mixed Result uniform Mean_Survived", "Rselected Mixed Result uniform Mean_Extirpated", "Rselected Mixed Result skewMedHigh Mean_Survived", "Rselected Mixed Result skewMedHigh Mean_Extirpated", "Rselected Mixed Result skewHigh Mean_Survived", "Rselected Mixed Result skewHigh Mean_Extirpated", "Rselected All Crashed skewLow Mean_Extirpated", "Rselected All Crashed skewMedLow Mean_Extirpated", "Rselected All Crashed uniform Mean_Extirpated", "Rselected All Crashed skewMedHigh Mean_Extirpated", "Rselected All Crashed skewHigh Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", 
+"Kselected All Survived skewMedLow Mean_Survived", 
+"Kselected All Survived uniform Mean_Survived", 
+"Kselected All Survived skewMedHigh Mean_Survived", 
+"Kselected All Survived skewHigh Mean_Survived", 
+"Kselected Mixed Result skewLow Mean_Survived", 
+"Kselected Mixed Result skewLow Mean_Extirpated", 
+"Kselected Mixed Result skewMedLow Mean_Survived", 
+"Kselected Mixed Result skewMedLow Mean_Extirpated", 
+"Kselected Mixed Result uniform Mean_Survived", 
+"Kselected Mixed Result uniform Mean_Extirpated", 
+"Kselected Mixed Result skewMedHigh Mean_Survived", 
+"Kselected Mixed Result skewMedHigh Mean_Extirpated", 
+"Kselected Mixed Result skewHigh Mean_Survived", 
+"Kselected Mixed Result skewHigh Mean_Extirpated", 
+"Rselected All Survived skewLow Mean_Survived", 
+"Rselected All Survived skewLow Mean_Extirpated",
+"Rselected All Survived skewMedLow Mean_Survived", 
+"Rselected All Survived uniform Mean_Survived", 
+"Rselected All Survived skewMedHigh Mean_Survived", 
+"Rselected All Survived skewHigh Mean_Survived", 
+"Rselected Mixed Result skewLow Mean_Survived", 
+"Rselected Mixed Result skewLow Mean_Extirpated", 
+"Rselected Mixed Result skewMedLow Mean_Survived", 
+"Rselected Mixed Result skewMedLow Mean_Extirpated", 
+"Rselected Mixed Result uniform Mean_Survived", 
+"Rselected Mixed Result uniform Mean_Extirpated", 
+"Rselected Mixed Result skewMedHigh Mean_Survived", 
+"Rselected Mixed Result skewMedHigh Mean_Extirpated", 
+"Rselected Mixed Result skewHigh Mean_Survived", 
+"Rselected Mixed Result skewHigh Mean_Extirpated", 
+"Rselected All Crashed skewLow Mean_Extirpated", 
+"Rselected All Crashed skewMedLow Mean_Extirpated", 
+"Rselected All Crashed uniform Mean_Extirpated", 
+"Rselected All Crashed skewMedHigh Mean_Extirpated",
+"Rselected All Crashed skewHigh Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by Boldness") +
@@ -259,7 +319,7 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, PoisLambda, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, PoisLambda, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by Poisson Lambda") +
@@ -270,7 +330,7 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoTransfer, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, InfoTransfer, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by InfoTransfer") +
@@ -281,7 +341,7 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoDeath, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, InfoDeath, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by InfoDeath") +
@@ -292,7 +352,7 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, NaiveLearn, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, NaiveLearn, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by NaiveLearn") +
@@ -303,7 +363,7 @@ maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, VertTrans, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, VertTrans, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived False Mean_Survived", "Kselected All Survived True Mean_Survived", "Kselected Mixed Result False Mean_Survived", "Kselected Mixed Result False Mean_Extirpated", "Kselected Mixed Result True Mean_Survived", "Kselected Mixed Result True Mean_Extirpated", "Rselected Mixed Result False Mean_Survived", "Rselected Mixed Result False Mean_Extirpated", "Rselected Mixed Result True Mean_Survived", "Rselected Mixed Result True Mean_Extirpated", "Rselected All Crashed False Mean_Extirpated", "Rselected All Crashed True Mean_Extirpated"))) %>% 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived False Mean_Survived", "Kselected All Survived True Mean_Survived", "Kselected Mixed Result False Mean_Survived", "Kselected Mixed Result False Mean_Extirpated", "Kselected Mixed Result True Mean_Survived", "Kselected Mixed Result True Mean_Extirpated", "Rselected All Survived False Mean_Survived", "Rselected All Survived True Mean_Survived", "Rselected Mixed Result False Mean_Survived", "Rselected Mixed Result False Mean_Extirpated", "Rselected Mixed Result True Mean_Survived", "Rselected Mixed Result True Mean_Extirpated", "Rselected All Crashed False Mean_Extirpated", "Rselected All Crashed True Mean_Extirpated"))) %>% 
   ggplot(aes(x = xcol, y = MeanYears)) + 
   geom_boxplot() +
   ggtitle("Mean Years to K or Crash by Vertical Transfer") +
@@ -320,7 +380,41 @@ ibmBold<- maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, Boldness, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, Boldness, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", "Kselected All Survived skewMedLow Mean_Survived", "Kselected All Survived uniform Mean_Survived", "Kselected All Survived skewMedHigh Mean_Survived", "Kselected All Survived skewHigh Mean_Survived", "Kselected Mixed Result skewLow Mean_Survived", "Kselected Mixed Result skewLow Mean_Extirpated", "Kselected Mixed Result skewMedLow Mean_Survived", "Kselected Mixed Result skewMedLow Mean_Extirpated", "Kselected Mixed Result uniform Mean_Survived", "Kselected Mixed Result uniform Mean_Extirpated", "Kselected Mixed Result skewMedHigh Mean_Survived", "Kselected Mixed Result skewMedHigh Mean_Extirpated", "Kselected Mixed Result skewHigh Mean_Survived", "Kselected Mixed Result skewHigh Mean_Extirpated", "Rselected Mixed Result skewLow Mean_Survived", "Rselected Mixed Result skewLow Mean_Extirpated", "Rselected Mixed Result skewMedLow Mean_Survived", "Rselected Mixed Result skewMedLow Mean_Extirpated", "Rselected Mixed Result uniform Mean_Survived", "Rselected Mixed Result uniform Mean_Extirpated", "Rselected Mixed Result skewMedHigh Mean_Survived", "Rselected Mixed Result skewMedHigh Mean_Extirpated", "Rselected Mixed Result skewHigh Mean_Survived", "Rselected Mixed Result skewHigh Mean_Extirpated", "Rselected All Crashed skewLow Mean_Extirpated", "Rselected All Crashed skewMedLow Mean_Extirpated", "Rselected All Crashed uniform Mean_Extirpated", "Rselected All Crashed skewMedHigh Mean_Extirpated", "Rselected All Crashed skewHigh Mean_Extirpated"))) 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived skewLow Mean_Survived", 
+"Kselected All Survived skewMedLow Mean_Survived", 
+"Kselected All Survived uniform Mean_Survived", 
+"Kselected All Survived skewMedHigh Mean_Survived", 
+"Kselected All Survived skewHigh Mean_Survived", 
+"Kselected Mixed Result skewLow Mean_Survived", 
+"Kselected Mixed Result skewLow Mean_Extirpated", 
+"Kselected Mixed Result skewMedLow Mean_Survived", 
+"Kselected Mixed Result skewMedLow Mean_Extirpated", 
+"Kselected Mixed Result uniform Mean_Survived", 
+"Kselected Mixed Result uniform Mean_Extirpated", 
+"Kselected Mixed Result skewMedHigh Mean_Survived", 
+"Kselected Mixed Result skewMedHigh Mean_Extirpated", 
+"Kselected Mixed Result skewHigh Mean_Survived", 
+"Kselected Mixed Result skewHigh Mean_Extirpated", 
+"Rselected All Survived skewLow Mean_Survived", 
+"Rselected All Survived skewMedLow Mean_Survived", 
+"Rselected All Survived uniform Mean_Survived", 
+"Rselected All Survived skewMedHigh Mean_Survived", 
+"Rselected All Survived skewHigh Mean_Survived", 
+"Rselected Mixed Result skewLow Mean_Survived", 
+"Rselected Mixed Result skewLow Mean_Extirpated", 
+"Rselected Mixed Result skewMedLow Mean_Survived", 
+"Rselected Mixed Result skewMedLow Mean_Extirpated", 
+"Rselected Mixed Result uniform Mean_Survived", 
+"Rselected Mixed Result uniform Mean_Extirpated", 
+"Rselected Mixed Result skewMedHigh Mean_Survived", 
+"Rselected Mixed Result skewMedHigh Mean_Extirpated", 
+"Rselected Mixed Result skewHigh Mean_Survived", 
+"Rselected Mixed Result skewHigh Mean_Extirpated", 
+"Rselected All Crashed skewLow Mean_Extirpated", 
+"Rselected All Crashed skewMedLow Mean_Extirpated", 
+"Rselected All Crashed uniform Mean_Extirpated", 
+"Rselected All Crashed skewMedHigh Mean_Extirpated",
+"Rselected All Crashed skewHigh Mean_Extirpated"))) 
 
 # Fit a model
 modBold<- aov(MeanYears ~ xcol, data = ibmBold)
@@ -341,7 +435,7 @@ ibmLambda<- maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, PoisLambda, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, PoisLambda, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
 
 # Fit a model
 modLambda<- aov(MeanYears ~ xcol, data = ibmLambda)
@@ -359,7 +453,7 @@ ibmInfoTran<- maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoTransfer, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, InfoTransfer, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
 
 # Fit a model
 modInfoTran<- aov(MeanYears ~ xcol, data = ibmInfoTran)
@@ -377,7 +471,7 @@ ibmInfoDeath<- maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, InfoDeath, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, InfoDeath, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) 
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated"))) 
 
 # Fit a model
 modInfoDeath<- aov(MeanYears ~ xcol, data = ibmInfoDeath)
@@ -395,7 +489,7 @@ ibmNaive<- maxYr %>%
   select(Scenario, Mean_Survived, Mean_Extirpated, Vital, NaiveLearn, EndResult) %>% 
   pivot_longer(cols = c(Mean_Survived, Mean_Extirpated), names_to = "Param", values_to = "MeanYears", values_drop_na = TRUE) %>% 
   mutate(xcol = paste(Vital, EndResult, NaiveLearn, Param)) %>% 
-  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
+  mutate(xcol = ordered(xcol, c("Kselected All Survived Low Mean_Survived", "Kselected All Survived MedLow Mean_Survived", "Kselected All Survived Med Mean_Survived", "Kselected All Survived MedHigh Mean_Survived", "Kselected All Survived High Mean_Survived", "Kselected Mixed Result Low Mean_Survived", "Kselected Mixed Result Low Mean_Extirpated", "Kselected Mixed Result MedLow Mean_Survived", "Kselected Mixed Result MedLow Mean_Extirpated", "Kselected Mixed Result Med Mean_Survived", "Kselected Mixed Result Med Mean_Extirpated", "Kselected Mixed Result MedHigh Mean_Survived", "Kselected Mixed Result MedHigh Mean_Extirpated", "Kselected Mixed Result High Mean_Survived", "Kselected Mixed Result High Mean_Extirpated", "Rselected All Survived Low Mean_Survived", "Rselected All Survived MedLow Mean_Survived", "Rselected All Survived Med Mean_Survived", "Rselected All Survived MedHigh Mean_Survived", "Rselected All Survived High Mean_Survived", "Rselected Mixed Result Low Mean_Survived", "Rselected Mixed Result Low Mean_Extirpated", "Rselected Mixed Result MedLow Mean_Survived", "Rselected Mixed Result MedLow Mean_Extirpated", "Rselected Mixed Result Med Mean_Survived", "Rselected Mixed Result Med Mean_Extirpated", "Rselected Mixed Result MedHigh Mean_Survived", "Rselected Mixed Result MedHigh Mean_Extirpated", "Rselected Mixed Result High Mean_Survived", "Rselected Mixed Result High Mean_Extirpated", "Rselected All Crashed Low Mean_Extirpated", "Rselected All Crashed MedLow Mean_Extirpated", "Rselected All Crashed Med Mean_Extirpated", "Rselected All Crashed MedHigh Mean_Extirpated", "Rselected All Crashed High Mean_Extirpated")))
 
 # Fit a model
 modNaive<- aov(MeanYears ~ xcol, data = ibmNaive)
@@ -410,10 +504,10 @@ conNaive<- summary(contrast(as.emmGrid(as.list(ref_grid(modNaive))))) %>%
 
 allEst<- conBold %>% 
   select(contrast, estimate_Bold) %>% 
-  left_join(conLambda %>% select(contrast, estimate_Lambda), by = "contrast") %>% 
-  left_join(conInfoTran %>% select(contrast, estimate_InfoTran), by = "contrast") %>% 
-  left_join(conInfoDeath %>% select(contrast, estimate_InfoDeath), by = "contrast") %>% 
-  left_join(conNaive %>% select(contrast, estimate_Naive), by = "contrast") 
+  full_join(conLambda %>% select(contrast, estimate_Lambda), by = "contrast") %>% 
+  full_join(conInfoTran %>% select(contrast, estimate_InfoTran), by = "contrast") %>% 
+  full_join(conInfoDeath %>% select(contrast, estimate_InfoDeath), by = "contrast") %>% 
+  full_join(conNaive %>% select(contrast, estimate_Naive), by = "contrast") 
 
 allPair<- conBoldPair %>% 
   select(contrast, estimate_Bold) %>% 
